@@ -22,6 +22,8 @@ contract UniswapV2Arb is Ownable {
         address token2;
     }
 
+    error UniswapV2Arb_NoProfitMade();
+
     constructor(address _owner) Ownable(_owner) {}
 
     function addRouters(address[] calldata _routers) external onlyOwner {
@@ -109,7 +111,8 @@ contract UniswapV2Arb is Ownable {
         uint tradeableAmount = token2Balance - token2InitialBalance;
         swap(_router2, _token2, _token1, tradeableAmount);
         uint endBalance = IERC20(_token1).balanceOf(address(this));
-        require(endBalance > startBalance, "Trade Reverted, No Profit Made");
+
+        if (endBalance < startBalance) revert UniswapV2Arb_NoProfitMade();
     }
 
     function findPath(
@@ -166,10 +169,9 @@ contract UniswapV2Arb is Ownable {
         uint tradeableAmount4 = IERC20(_token4).balanceOf(address(this)) -
             token4InitialBalance;
         swap(_router1, _token4, _token1, tradeableAmount4);
-        require(
-            IERC20(_token1).balanceOf(address(this)) > startBalance,
-            "Trade Reverted, No Profit Made"
-        );
+
+        if (IERC20(_token1).balanceOf(address(this)) < startBalance)
+            revert UniswapV2Arb_NoProfitMade();
     }
 
     function getBalance(
