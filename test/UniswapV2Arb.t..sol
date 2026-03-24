@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test, console} from "forge-std/Test.sol";
 import {UniswapV2Arb} from "../src/UniswapV2Arb.sol";
 import {ERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 // ─── Mock ERC20 ───────────────────────────────────────────────────────────────
 
@@ -122,7 +123,12 @@ contract UniswapV2ArbTest is Test {
 
     function test_AddPath_OnlyOwner() public {
         vm.prank(alice);
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                alice
+            )
+        );
         arb.addPath(address(token1), address(stable1), address(token2));
     }
 
@@ -259,7 +265,7 @@ contract UniswapV2ArbTest is Test {
         token2.mint(address(routerHalf), amount);
         baseAsset.mint(address(routerHalf), amount);
 
-        vm.expectRevert("Trade Reverted, No Profit Made");
+        vm.expectRevert(UniswapV2Arb.UniswapV2Arb_NoProfitMade.selector);
         arb.tradePath(
             address(routerHalf),
             address(baseAsset),
@@ -272,7 +278,12 @@ contract UniswapV2ArbTest is Test {
 
     function test_TradePath_OnlyOwner() public {
         vm.prank(alice);
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                alice
+            )
+        );
         arb.tradePath(
             address(router),
             address(baseAsset),
@@ -318,7 +329,12 @@ contract UniswapV2ArbTest is Test {
         address[] memory r = new address[](1);
         r[0] = address(router);
         vm.prank(alice);
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                alice
+            )
+        );
         arb.addRouters(r);
     }
 
@@ -434,7 +450,7 @@ contract UniswapV2ArbTest is Test {
         token2.mint(address(router), amount * 2);
         token1.mint(address(loser), (amount * 2 * 4) / 10);
 
-        vm.expectRevert("Trade Reverted, No Profit Made");
+        vm.expectRevert(UniswapV2Arb.UniswapV2Arb_NoProfitMade.selector);
         arb.dualDexTrade(
             address(router),
             address(loser),
@@ -446,7 +462,12 @@ contract UniswapV2ArbTest is Test {
 
     function test_DualDexTrade_OnlyOwner() public {
         vm.prank(alice);
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                alice
+            )
+        );
         arb.dualDexTrade(
             address(router),
             address(routerHalf),
@@ -500,7 +521,12 @@ contract UniswapV2ArbTest is Test {
     function test_RecoverEth_OnlyOwner() public {
         vm.deal(address(arb), 1 ether);
         vm.prank(alice);
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                alice
+            )
+        );
         arb.recoverEth();
     }
 
@@ -523,7 +549,12 @@ contract UniswapV2ArbTest is Test {
     function test_RecoverTokens_OnlyOwner() public {
         token1.mint(address(arb), 1 ether);
         vm.prank(alice);
-        vm.expectRevert();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                alice
+            )
+        );
         arb.recoverTokens(address(token1));
     }
 
