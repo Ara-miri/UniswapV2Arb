@@ -4,8 +4,11 @@ pragma solidity ^0.8.28;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router, IUniswapV2Pair} from "./interfaces/UniswapInterfaces.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract UniswapV2Arb is Ownable {
+    // To use for approval of USDT (or other tokens with non-standard approval behavior)
+    using SafeERC20 for IERC20;
     address[] public routers;
     ArbPath[] public paths;
 
@@ -46,7 +49,7 @@ contract UniswapV2Arb is Ownable {
         address _tokenOut,
         uint256 _amount
     ) private {
-        IERC20(_tokenIn).approve(router, _amount);
+        IERC20(_tokenIn).forceApprove(router, _amount); // handles USDT's non-standard approve
         address[] memory path;
         path = new address[](2);
         path[0] = _tokenIn;
