@@ -12,6 +12,8 @@ contract UniswapV2Arb is Ownable {
     address[] public routers;
     ArbPath[] public paths;
 
+    mapping(address => bool) public isRegisteredRouter;
+
     struct PathResult {
         uint256 amtBack;
         address token1;
@@ -26,12 +28,21 @@ contract UniswapV2Arb is Ownable {
     }
 
     error UniswapV2Arb_NoProfitMade();
+    error UniswapV2Arb_ZeroInputAmount();
+    error UniswapV2Arb_RouterNotRegistered(address router);
+    error UniswapV2Arb_RouterAlreadyRegistered(address router);
 
     constructor(address _owner) Ownable(_owner) {}
 
     function addRouters(address[] calldata _routers) external onlyOwner {
-        for (uint i = 0; i < _routers.length; i++) {
+        for (uint i = 0; i < _routers.length; ) {
+            if (isRegisteredRouter[_routers[i]])
+                revert UniswapV2Arb_RouterAlreadyRegistered(_routers[i]);
+            isRegisteredRouter[_routers[i]] = true;
             routers.push(_routers[i]);
+            unchecked {
+                ++i; // saves ~30 gas per iteration vs i++
+            }
         }
     }
 
@@ -49,6 +60,9 @@ contract UniswapV2Arb is Ownable {
         address _tokenOut,
         uint256 _amount
     ) private {
+        if (!isRegisteredRouter[router])
+            revert UniswapV2Arb_RouterNotRegistered(router);
+
         IERC20(_tokenIn).forceApprove(router, _amount); // handles USDT's non-standard approve
         address[] memory path;
         path = new address[](2);
@@ -115,7 +129,50 @@ contract UniswapV2Arb is Ownable {
         swap(_router2, _token2, _token1, tradeableAmount);
         uint endBalance = IERC20(_token1).balanceOf(address(this));
 
-        if (endBalance < startBalance) revert UniswapV2Arb_NoProfitMade();
+        if (endBalance <= startBalance) revert UniswapV2Arb_NoProfitMade();
+    }
+
+    function estimateTriDexTrade(
+        address _router1,
+        address _router2,
+        address _router3,
+        address _token1,
+        address _token2,
+        address _token3,
+        uint256 _amount
+    ) external view returns (uint256) {
+        if (_amount == 0) revert UniswapV2Arb_ZeroInputAmount();
+        uint256 amt = getAmountOutMin(_router1, _token1, _token2, _amount);
+        amt = getAmountOutMin(_router2, _token2, _token3, amt);
+        amt = getAmountOutMin(_router3, _token3, _token1, amt);
+        return amt;
+    }
+
+    function triDexTrade(
+        address _router1,
+        address _router2,
+        address _router3,
+        address _token1,
+        address _token2,
+        address _token3,
+        uint256 _amount
+    ) external onlyOwner {
+        uint startBalance = IERC20(_token1).balanceOf(address(this));
+
+        uint token2InitialBalance = IERC20(_token2).balanceOf(address(this));
+        swap(_router1, _token1, _token2, _amount);
+        uint tradeableAmount2 = IERC20(_token2).balanceOf(address(this)) -
+            token2InitialBalance;
+
+        uint token3InitialBalance = IERC20(_token3).balanceOf(address(this));
+        swap(_router2, _token2, _token3, tradeableAmount2);
+        uint tradeableAmount3 = IERC20(_token3).balanceOf(address(this)) -
+            token3InitialBalance;
+
+        swap(_router3, _token3, _token1, tradeableAmount3);
+        uint endBalance = IERC20(_token1).balanceOf(address(this));
+
+        if (endBalance <= startBalance) revert UniswapV2Arb_NoProfitMade();
     }
 
     function findPath(
@@ -172,9 +229,9 @@ contract UniswapV2Arb is Ownable {
         uint tradeableAmount4 = IERC20(_token4).balanceOf(address(this)) -
             token4InitialBalance;
         swap(_router1, _token4, _token1, tradeableAmount4);
+        uint endBalance = IERC20(_token1).balanceOf(address(this));
 
-        if (IERC20(_token1).balanceOf(address(this)) < startBalance)
-            revert UniswapV2Arb_NoProfitMade();
+        if (endBalance <= startBalance) revert UniswapV2Arb_NoProfitMade();
     }
 
     function getBalance(
@@ -182,6 +239,10 @@ contract UniswapV2Arb is Ownable {
     ) external view returns (uint256) {
         uint balance = IERC20(_tokenContractAddress).balanceOf(address(this));
         return balance;
+    }
+
+    function getRouters() external view returns (address[] memory) {
+        return routers;
     }
 
     function pathsLength() external view returns (uint256) {
