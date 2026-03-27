@@ -3,71 +3,8 @@ pragma solidity ^0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
 import {UniswapV2Arb} from "../src/UniswapV2Arb.sol";
-import {ERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
-// ─── Mock ERC20 ───────────────────────────────────────────────────────────────
-
-contract MockERC20 is ERC20 {
-    constructor(string memory name, string memory symbol) ERC20(name, symbol) {}
-
-    function mint(address to, uint256 amount) external {
-        _mint(to, amount);
-    }
-}
-
-// ─── Mock Uniswap V2 Router ───────────────────────────────────────────────────
-
-contract MockRouter {
-    uint256 public rateNumerator;
-    uint256 public rateDenominator;
-
-    constructor(uint256 _num, uint256 _den) {
-        rateNumerator = _num;
-        rateDenominator = _den;
-    }
-
-    function getAmountsOut(
-        uint256 amountIn,
-        address[] calldata path
-    ) external view returns (uint256[] memory amounts) {
-        amounts = new uint256[](path.length);
-        amounts[0] = amountIn;
-        amounts[path.length - 1] = (amountIn * rateNumerator) / rateDenominator;
-    }
-
-    function swapExactTokensForTokens(
-        uint256 amountIn,
-        uint256,
-        address[] calldata path,
-        address to,
-        uint256
-    ) external returns (uint256[] memory amounts) {
-        address tokenIn = path[0];
-        address tokenOut = path[path.length - 1];
-        uint256 amountOut = (amountIn * rateNumerator) / rateDenominator;
-
-        IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn);
-        IERC20(tokenOut).transfer(to, amountOut);
-
-        amounts = new uint256[](path.length);
-        amounts[0] = amountIn;
-        amounts[path.length - 1] = amountOut;
-    }
-}
-
-// ─── Reverting Router (for getAmountOutMin try/catch test) ───────────────────
-
-contract RevertingRouter {
-    function getAmountsOut(
-        uint256,
-        address[] calldata
-    ) external pure returns (uint256[] memory) {
-        revert("pool does not exist");
-    }
-}
-
-// ─── Test Suite ───────────────────────────────────────────────────────────────
+import {MockERC20, MockRouter, RevertingRouter} from "./Mocks.sol";
 
 contract UniswapV2ArbTest is Test {
     UniswapV2Arb internal arb;
@@ -79,6 +16,7 @@ contract UniswapV2ArbTest is Test {
     MockERC20 internal stable1;
     MockRouter internal router; // 2x
     MockRouter internal routerHalf; // 0.5x
+    MockRouter internal router06; // 0.6x
 
     address internal owner = address(this);
     address internal alice = makeAddr("alice");
@@ -95,6 +33,7 @@ contract UniswapV2ArbTest is Test {
         stable1 = new MockERC20("USDC", "USDC");
         router = new MockRouter(2, 1);
         routerHalf = new MockRouter(1, 2);
+        router06 = new MockRouter(6, 10);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -244,6 +183,11 @@ contract UniswapV2ArbTest is Test {
         _fundRouter2x(amount);
 
         uint256 before = baseAsset.balanceOf(address(arb));
+
+        address[] memory r = new address[](1);
+        r[0] = address(router);
+        arb.addRouters(r);
+
         arb.tradePath(
             address(router),
             address(baseAsset),
@@ -264,6 +208,10 @@ contract UniswapV2ArbTest is Test {
         stable1.mint(address(routerHalf), amount);
         token2.mint(address(routerHalf), amount);
         baseAsset.mint(address(routerHalf), amount);
+
+        address[] memory r = new address[](1);
+        r[0] = address(routerHalf);
+        arb.addRouters(r);
 
         vm.expectRevert(UniswapV2Arb.UniswapV2Arb_NoProfitMade.selector);
         arb.tradePath(
@@ -298,6 +246,10 @@ contract UniswapV2ArbTest is Test {
         uint256 amount = 1 ether;
         baseAsset.mint(address(arb), amount);
         _fundRouter2x(amount);
+
+        address[] memory r = new address[](1);
+        r[0] = address(router);
+        arb.addRouters(r);
 
         // Pre-existing intermediate balances — only deltas should flow through
         token1.mint(address(arb), 50 ether);
@@ -338,17 +290,50 @@ contract UniswapV2ArbTest is Test {
         arb.addRouters(r);
     }
 
-    function test_AddRouters_Appends() public {
+    function test_AddRouters_RevertsIfDuplicate() public {
+        address[] memory r = new address[](1);
+        r[0] = address(router);
+        arb.addRouters(r);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterAlreadyRegistered.selector,
+                address(router)
+            )
+        );
+        arb.addRouters(r);
+    }
+
+    function test_AddRouters_RevertsIfDuplicateWithinSameBatch() public {
+        address[] memory r = new address[](2);
+        r[0] = address(router);
+        r[1] = address(router); // duplicate in same call
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterAlreadyRegistered.selector,
+                address(router)
+            )
+        );
+        arb.addRouters(r);
+    }
+
+    function test_AddRouters_RevertsIfDuplicateAcrossBatches() public {
         address[] memory r1 = new address[](1);
         r1[0] = address(router);
         arb.addRouters(r1);
 
-        address[] memory r2 = new address[](1);
+        address[] memory r2 = new address[](2);
         r2[0] = address(routerHalf);
-        arb.addRouters(r2);
+        r2[1] = address(router); // already registered in previous batch
 
-        assertEq(arb.routers(0), address(router));
-        assertEq(arb.routers(1), address(routerHalf));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterAlreadyRegistered.selector,
+                address(router)
+            )
+        );
+        arb.addRouters(r2);
     }
 
     // ── getAmountOutMin ───────────────────────────────────────────────────────
@@ -387,9 +372,8 @@ contract UniswapV2ArbTest is Test {
 
     // ── estimateDualDexTrade ──────────────────────────────────────────────────
 
-    function test_EstimateDualDexTrade_Profitable() public {
+    function test_EstimateDualDexTrade_Profitable() public view {
         // router (2x) then routerHalf (0.5x) on way back — but we use router both ways: net 4x
-        MockRouter router06 = new MockRouter(6, 10);
         uint256 result = arb.estimateDualDexTrade(
             address(router),
             address(router06),
@@ -413,21 +397,69 @@ contract UniswapV2ArbTest is Test {
         assertEq(result, 0);
     }
 
+    // ── IsRegisteredRouter ──────────────────────────────────────────────────
+
+    function test_IsRegisteredRouter_FalseInitially() public view {
+        assertFalse(arb.isRegisteredRouter(address(router)));
+    }
+
+    function test_IsRegisteredRouter_TrueAfterAdding() public {
+        address[] memory r = new address[](1);
+        r[0] = address(router);
+        arb.addRouters(r);
+        assertTrue(arb.isRegisteredRouter(address(router)));
+    }
+
+    // ── getRouters ──────────────────────────────────────────────────
+
+    function test_GetRouters_ReturnsEmptyInitially() public view {
+        assertEq(arb.getRouters().length, 0);
+    }
+
+    function test_GetRouters_ReturnsRegisteredRouters() public {
+        address[] memory r = new address[](2);
+        r[0] = address(router);
+        r[1] = address(routerHalf);
+        arb.addRouters(r);
+
+        address[] memory result = arb.getRouters();
+        assertEq(result.length, 2);
+        assertEq(result[0], address(router));
+        assertEq(result[1], address(routerHalf));
+    }
+
+    function test_GetRouters_ReflectsAppendedRouters() public {
+        address[] memory r1 = new address[](1);
+        r1[0] = address(router);
+        arb.addRouters(r1);
+
+        address[] memory r2 = new address[](1);
+        r2[0] = address(routerHalf);
+        arb.addRouters(r2);
+
+        address[] memory result = arb.getRouters();
+        assertEq(result.length, 2);
+        assertEq(result[0], address(router));
+        assertEq(result[1], address(routerHalf));
+    }
+
     // ── dualDexTrade ─────────────────────────────────────────────────────────
 
     function _fundDual(uint256 amount) internal {
         token1.mint(address(arb), amount);
         token2.mint(address(router), amount * 2); // router pays out token2
-        MockRouter router06 = new MockRouter(6, 10);
         token1.mint(address(router06), (amount * 2 * 6) / 10);
-        // return router06 so caller can use it
     }
 
     function test_DualDexTrade_Profitable() public {
         uint256 amount = 10 ether;
         token1.mint(address(arb), amount);
 
-        MockRouter router06 = new MockRouter(6, 10);
+        address[] memory r = new address[](2);
+        r[0] = address(router);
+        r[1] = address(router06);
+        arb.addRouters(r);
+
         token2.mint(address(router), amount * 2);
         token1.mint(address(router06), (amount * 2 * 6) / 10);
 
@@ -447,6 +479,11 @@ contract UniswapV2ArbTest is Test {
         token1.mint(address(arb), amount);
 
         MockRouter loser = new MockRouter(4, 10); // net 0.8x
+        address[] memory r = new address[](2);
+        r[0] = address(router);
+        r[1] = address(loser);
+        arb.addRouters(r);
+
         token2.mint(address(router), amount * 2);
         token1.mint(address(loser), (amount * 2 * 4) / 10);
 
@@ -479,14 +516,28 @@ contract UniswapV2ArbTest is Test {
 
     function test_DualDexTrade_OnlyDeltaOfToken2IsTraded() public {
         uint256 amount = 10 ether;
-        token1.mint(address(arb), amount);
-
-        MockRouter router06 = new MockRouter(6, 10);
-        token2.mint(address(router), amount * 2);
-        token1.mint(address(router06), (amount * 2 * 6) / 10);
-
+        uint256 preExistingToken2 = 5 ether;
+        token1.mint(address(arb), amount); // arb starts with 10 token1
         // Pre-existing token2 in arb — should NOT be included in leg-2
-        token2.mint(address(arb), 5 ether);
+        token2.mint(address(arb), preExistingToken2); // arb starts with 5 token2
+
+        // Snapshot balances before
+        uint256 token1Before = token1.balanceOf(address(arb));
+        uint256 token2Before = token2.balanceOf(address(arb));
+        assertEq(token1Before, amount, "Should start with 10 token1");
+        assertEq(
+            token2Before,
+            preExistingToken2,
+            "Should start with 5 pre-existing token2"
+        );
+
+        address[] memory r = new address[](2);
+        r[0] = address(router);
+        r[1] = address(router06);
+        arb.addRouters(r);
+
+        token2.mint(address(router), amount * 2); // router can pay out 20 token2
+        token1.mint(address(router06), (amount * 2 * 6) / 10); // router06 can pay out 12 token1
 
         arb.dualDexTrade(
             address(router),
@@ -494,6 +545,335 @@ contract UniswapV2ArbTest is Test {
             address(token1),
             address(token2),
             amount
+        );
+
+        // Snapshot balances after
+        uint256 token1After = token1.balanceOf(address(arb));
+        uint256 token2After = token2.balanceOf(address(arb));
+
+        // token1 should have increased — profitable trade
+        assertGt(
+            token1After,
+            token1Before,
+            "Should end with more token1 than started"
+        );
+
+        // pre-existing token2 should be completely untouched
+        assertEq(
+            token2After,
+            preExistingToken2,
+            "Pre-existing token2 should be untouched"
+        );
+    }
+
+    // ── estimateTriDexTrade ───────────────────────────────────────────────────────
+
+    function test_EstimateTriDexTrade_Profitable() public view {
+        // 2x → 2x → 2x = 8x, clearly profitable
+        uint256 result = arb.estimateTriDexTrade(
+            address(router),
+            address(router),
+            address(router),
+            address(token1),
+            address(token2),
+            address(token3),
+            1 ether
+        );
+        assertEq(result, 8 ether);
+    }
+
+    function test_EstimateTriDexTrade_Unprofitable() public view {
+        // 0.5x → 0.5x → 0.5x = 0.125x, clearly unprofitable
+        uint256 result = arb.estimateTriDexTrade(
+            address(routerHalf),
+            address(routerHalf),
+            address(routerHalf),
+            address(token1),
+            address(token2),
+            address(token3),
+            1 ether
+        );
+        assertLt(result, 1 ether);
+    }
+
+    function test_EstimateTriDexTrade_MixedRouters() public view {
+        // 2x → 0.5x → 2x = 2x net, still profitable
+        uint256 result = arb.estimateTriDexTrade(
+            address(router),
+            address(routerHalf),
+            address(router),
+            address(token1),
+            address(token2),
+            address(token3),
+            1 ether
+        );
+        assertEq(result, 2 ether);
+    }
+
+    function test_EstimateTriDexTrade_RouterReverts_ReturnsZero() public {
+        RevertingRouter bad = new RevertingRouter();
+        uint256 result = arb.estimateTriDexTrade(
+            address(bad),
+            address(router),
+            address(router),
+            address(token1),
+            address(token2),
+            address(token3),
+            1 ether
+        );
+        assertEq(result, 0);
+    }
+
+    function test_EstimateTriDexTrade_ZeroAmount() public {
+        vm.expectRevert(UniswapV2Arb.UniswapV2Arb_ZeroInputAmount.selector);
+        arb.estimateTriDexTrade(
+            address(router),
+            address(router),
+            address(router),
+            address(token1),
+            address(token2),
+            address(token3),
+            0
+        );
+    }
+
+    // ── triDexTrade ───────────────────────────────────────────────────────────────
+
+    function _fundTriTrade(uint256 amount) internal {
+        // router1: token1 → token2 at 2x
+        token1.mint(address(arb), amount);
+        token2.mint(address(router), amount * 2);
+
+        // router2: token2 → token3 at 2x
+        MockRouter router2x = new MockRouter(2, 1);
+        token3.mint(address(router2x), amount * 4);
+
+        // router3: token3 → token1 at 2x
+        MockRouter router3x = new MockRouter(2, 1);
+        token1.mint(address(router3x), amount * 8);
+    }
+
+    function test_TriDexTrade_Profitable() public {
+        uint256 amount = 1 ether;
+        token1.mint(address(arb), amount);
+
+        address[] memory r = new address[](1);
+        r[0] = address(router);
+        arb.addRouters(r);
+
+        // Use same 2x router for all hops: 1 → 2 → 4 → 8
+        token2.mint(address(router), amount * 2);
+        token3.mint(address(router), amount * 4);
+        token1.mint(address(router), amount * 8);
+
+        uint256 before = token1.balanceOf(address(arb));
+        arb.triDexTrade(
+            address(router),
+            address(router),
+            address(router),
+            address(token1),
+            address(token2),
+            address(token3),
+            amount
+        );
+        assertGt(token1.balanceOf(address(arb)), before);
+    }
+
+    function test_TriDexTrade_Profitable_DifferentRouters() public {
+        uint256 amount = 1 ether;
+        token1.mint(address(arb), amount);
+
+        MockRouter router2 = new MockRouter(2, 1);
+        MockRouter router3 = new MockRouter(2, 1);
+
+        address[] memory r = new address[](3);
+        r[0] = address(router);
+        r[1] = address(router2);
+        r[2] = address(router3);
+        arb.addRouters(r);
+
+        token2.mint(address(router), amount * 2); // router1: 2x
+        token3.mint(address(router2), amount * 4); // router2: 2x
+        token1.mint(address(router3), amount * 8); // router3: 2x
+
+        uint256 before = token1.balanceOf(address(arb));
+        arb.triDexTrade(
+            address(router),
+            address(router2),
+            address(router3),
+            address(token1),
+            address(token2),
+            address(token3),
+            amount
+        );
+        assertGt(token1.balanceOf(address(arb)), before);
+    }
+
+    function test_TriDexTrade_RevertsIfUnprofitable() public {
+        uint256 amount = 1 ether;
+        token1.mint(address(arb), amount);
+
+        address[] memory r = new address[](1);
+        r[0] = address(routerHalf);
+        arb.addRouters(r);
+
+        // 0.5x each hop: 1 → 0.5 → 0.25 → 0.125
+        token2.mint(address(routerHalf), amount);
+        token3.mint(address(routerHalf), amount);
+        token1.mint(address(routerHalf), amount);
+
+        vm.expectRevert(UniswapV2Arb.UniswapV2Arb_NoProfitMade.selector);
+        arb.triDexTrade(
+            address(routerHalf),
+            address(routerHalf),
+            address(routerHalf),
+            address(token1),
+            address(token2),
+            address(token3),
+            amount
+        );
+    }
+
+    function test_TriDexTrade_OnlyOwner() public {
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                alice
+            )
+        );
+        arb.triDexTrade(
+            address(router),
+            address(router),
+            address(router),
+            address(token1),
+            address(token2),
+            address(token3),
+            1 ether
+        );
+    }
+
+    function test_TriDexTrade_OnlyDeltasAreTraded() public {
+        uint256 amount = 1 ether;
+        token1.mint(address(arb), amount);
+
+        // Pre-existing intermediate balances
+        token2.mint(address(arb), 50 ether);
+        token3.mint(address(arb), 50 ether);
+
+        address[] memory r = new address[](1);
+        r[0] = address(router);
+        arb.addRouters(r);
+
+        // Router only seeded for leg outputs, not pre-existing balances
+        token2.mint(address(router), amount * 2);
+        token3.mint(address(router), amount * 4);
+        token1.mint(address(router), amount * 8);
+
+        arb.triDexTrade(
+            address(router),
+            address(router),
+            address(router),
+            address(token1),
+            address(token2),
+            address(token3),
+            amount
+        );
+    }
+
+    // ── router validation in swap ─────────────────────────────────────────────────
+
+    function test_DualDexTrade_RevertsIfRouter1NotRegistered() public {
+        // Register only router2, not router
+        address[] memory r = new address[](1);
+        r[0] = address(router);
+        arb.addRouters(r);
+
+        token1.mint(address(arb), 1 ether);
+        MockRouter unregistered = new MockRouter(2, 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterNotRegistered.selector,
+                address(unregistered)
+            )
+        );
+        arb.dualDexTrade(
+            address(unregistered),
+            address(router),
+            address(token1),
+            address(token2),
+            1 ether
+        );
+    }
+
+    function test_DualDexTrade_RevertsIfRouter2NotRegistered() public {
+        address[] memory r = new address[](1);
+        r[0] = address(router);
+        arb.addRouters(r);
+
+        token1.mint(address(arb), 1 ether);
+        token2.mint(address(router), 2 ether);
+        MockRouter unregistered = new MockRouter(2, 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterNotRegistered.selector,
+                address(unregistered)
+            )
+        );
+        arb.dualDexTrade(
+            address(router),
+            address(unregistered),
+            address(token1),
+            address(token2),
+            1 ether
+        );
+    }
+
+    function test_TriDexTrade_RevertsIfRouterNotRegistered() public {
+        address[] memory r = new address[](2);
+        r[0] = address(router);
+        r[1] = address(routerHalf);
+        arb.addRouters(r);
+
+        token1.mint(address(arb), 1 ether);
+        MockRouter unregistered = new MockRouter(2, 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterNotRegistered.selector,
+                address(unregistered)
+            )
+        );
+        arb.triDexTrade(
+            address(unregistered),
+            address(router),
+            address(routerHalf),
+            address(token1),
+            address(token2),
+            address(token3),
+            1 ether
+        );
+    }
+
+    function test_TradePath_RevertsIfRouterNotRegistered() public {
+        token1.mint(address(arb), 1 ether);
+        MockRouter unregistered = new MockRouter(2, 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterNotRegistered.selector,
+                address(unregistered)
+            )
+        );
+        arb.tradePath(
+            address(unregistered),
+            address(token1),
+            address(token2),
+            address(token3),
+            address(token4),
+            1 ether
         );
     }
 
