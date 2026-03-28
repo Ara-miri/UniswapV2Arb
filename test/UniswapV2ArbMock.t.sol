@@ -60,7 +60,7 @@ contract UniswapV2ArbTest is Test {
         assertEq(t2, address(token2));
     }
 
-    function test_AddPath_OnlyOwner() public {
+    function testRevert_AddPath_OnlyOwner() public {
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -199,7 +199,7 @@ contract UniswapV2ArbTest is Test {
         assertGt(baseAsset.balanceOf(address(arb)), before);
     }
 
-    function test_TradePath_RevertsIfUnprofitable() public {
+    function testRevert_TradePath_RevertsIfUnprofitable() public {
         uint256 amount = 10 ether;
         baseAsset.mint(address(arb), amount);
 
@@ -224,7 +224,7 @@ contract UniswapV2ArbTest is Test {
         );
     }
 
-    function test_TradePath_OnlyOwner() public {
+    function testRevert_TradePath_OnlyOwner() public {
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -277,7 +277,7 @@ contract UniswapV2ArbTest is Test {
         assertEq(arb.routers(1), address(routerHalf));
     }
 
-    function test_AddRouters_OnlyOwner() public {
+    function testRevert_AddRouters_OnlyOwner() public {
         address[] memory r = new address[](1);
         r[0] = address(router);
         vm.prank(alice);
@@ -290,7 +290,7 @@ contract UniswapV2ArbTest is Test {
         arb.addRouters(r);
     }
 
-    function test_AddRouters_RevertsIfDuplicate() public {
+    function testRevert_AddRouters_RevertsIfDuplicateRouterAdded() public {
         address[] memory r = new address[](1);
         r[0] = address(router);
         arb.addRouters(r);
@@ -304,7 +304,7 @@ contract UniswapV2ArbTest is Test {
         arb.addRouters(r);
     }
 
-    function test_AddRouters_RevertsIfDuplicateWithinSameBatch() public {
+    function testRevert_AddRouters_RevertsIfDuplicateWithinSameBatch() public {
         address[] memory r = new address[](2);
         r[0] = address(router);
         r[1] = address(router); // duplicate in same call
@@ -318,7 +318,7 @@ contract UniswapV2ArbTest is Test {
         arb.addRouters(r);
     }
 
-    function test_AddRouters_RevertsIfDuplicateAcrossBatches() public {
+    function testRevert_AddRouters_RevertsIfDuplicateAcrossBatches() public {
         address[] memory r1 = new address[](1);
         r1[0] = address(router);
         arb.addRouters(r1);
@@ -474,7 +474,7 @@ contract UniswapV2ArbTest is Test {
         assertGt(token1.balanceOf(address(arb)), before);
     }
 
-    function test_DualDexTrade_RevertsIfUnprofitable() public {
+    function testRevert_DualDexTrade_RevertsIfUnprofitable() public {
         uint256 amount = 10 ether;
         token1.mint(address(arb), amount);
 
@@ -497,7 +497,7 @@ contract UniswapV2ArbTest is Test {
         );
     }
 
-    function test_DualDexTrade_OnlyOwner() public {
+    function testRevert_DualDexTrade_OnlyOwner() public {
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -624,7 +624,7 @@ contract UniswapV2ArbTest is Test {
         assertEq(result, 0);
     }
 
-    function test_EstimateTriDexTrade_ZeroAmount() public {
+    function testRevert_EstimateTriDexTrade_ZeroAmount() public {
         vm.expectRevert(UniswapV2Arb.UniswapV2Arb_ZeroInputAmount.selector);
         arb.estimateTriDexTrade(
             address(router),
@@ -709,7 +709,7 @@ contract UniswapV2ArbTest is Test {
         assertGt(token1.balanceOf(address(arb)), before);
     }
 
-    function test_TriDexTrade_RevertsIfUnprofitable() public {
+    function testRevert_TriDexTrade_RevertsIfUnprofitable() public {
         uint256 amount = 1 ether;
         token1.mint(address(arb), amount);
 
@@ -734,7 +734,7 @@ contract UniswapV2ArbTest is Test {
         );
     }
 
-    function test_TriDexTrade_OnlyOwner() public {
+    function testRevert_TriDexTrade_OnlyOwner() public {
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -783,7 +783,7 @@ contract UniswapV2ArbTest is Test {
 
     // ── router validation in swap ─────────────────────────────────────────────────
 
-    function test_DualDexTrade_RevertsIfRouter1NotRegistered() public {
+    function testRevert_DualDexTrade_RevertsIfRouter1NotRegistered() public {
         // Register only router2, not router
         address[] memory r = new address[](1);
         r[0] = address(router);
@@ -807,7 +807,7 @@ contract UniswapV2ArbTest is Test {
         );
     }
 
-    function test_DualDexTrade_RevertsIfRouter2NotRegistered() public {
+    function testRevert_DualDexTrade_RevertsIfRouter2NotRegistered() public {
         address[] memory r = new address[](1);
         r[0] = address(router);
         arb.addRouters(r);
@@ -831,7 +831,7 @@ contract UniswapV2ArbTest is Test {
         );
     }
 
-    function test_TriDexTrade_RevertsIfRouterNotRegistered() public {
+    function testRevert_TriDexTrade_RevertsIfRouterNotRegistered() public {
         address[] memory r = new address[](2);
         r[0] = address(router);
         r[1] = address(routerHalf);
@@ -857,7 +857,7 @@ contract UniswapV2ArbTest is Test {
         );
     }
 
-    function test_TradePath_RevertsIfRouterNotRegistered() public {
+    function testRevert_TradePath_RevertsIfRouterNotRegistered() public {
         token1.mint(address(arb), 1 ether);
         MockRouter unregistered = new MockRouter(2, 1);
 
@@ -898,7 +898,7 @@ contract UniswapV2ArbTest is Test {
         assertEq(address(arb).balance, 0);
     }
 
-    function test_RecoverEth_OnlyOwner() public {
+    function testRevert_RecoverEth_OnlyOwner() public {
         vm.deal(address(arb), 1 ether);
         vm.prank(alice);
         vm.expectRevert(
@@ -926,7 +926,7 @@ contract UniswapV2ArbTest is Test {
         assertEq(token1.balanceOf(address(arb)), 0);
     }
 
-    function test_RecoverTokens_OnlyOwner() public {
+    function testRevert_RecoverTokens_OnlyOwner() public {
         token1.mint(address(arb), 1 ether);
         vm.prank(alice);
         vm.expectRevert(
