@@ -132,6 +132,345 @@ contract UniswapV2ArbForkTest is Test {
         );
     }
 
+    // ── router registration ───────────────────────────────────────────────────────
+
+    function test_Fork_AddRouters_RegistersCorrectly() public {
+        address[] memory r = new address[](3);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        r[2] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
+        address[] memory result = arb.getRouters();
+        assertEq(result.length, 3);
+        assertEq(result[0], SUSHISWAP_ROUTER);
+        assertEq(result[1], PANCAKESWAP_ROUTER);
+        assertEq(result[2], UNISWAP_V2_ROUTER);
+    }
+
+    function test_Fork_AddRouters_IsRegisteredRouter() public {
+        address[] memory r = new address[](3);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        r[2] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
+        assertTrue(arb.isRegisteredRouter(UNISWAP_V2_ROUTER));
+        assertTrue(arb.isRegisteredRouter(SUSHISWAP_ROUTER));
+        assertTrue(arb.isRegisteredRouter(PANCAKESWAP_ROUTER));
+    }
+
+    function test_Fork_AddRouters_UnregisteredRouterReturnsFalse() public {
+        assertFalse(arb.isRegisteredRouter(makeAddr("fakeRouter")));
+    }
+
+    function test_Fork_AddRouters_RevertsIfDuplicate() public {
+        address[] memory r = new address[](3);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        r[2] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
+        r = new address[](1);
+        r[0] = UNISWAP_V2_ROUTER;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterAlreadyRegistered.selector,
+                UNISWAP_V2_ROUTER
+            )
+        );
+        arb.addRouters(r);
+    }
+
+    function test_Fork_AddRouters_OnlyOwner() public {
+        address[] memory r = new address[](1);
+        r[0] = makeAddr("newRouter");
+        vm.prank(makeAddr("alice"));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                makeAddr("alice")
+            )
+        );
+        arb.addRouters(r);
+    }
+
+    function test_Fork_AddRouters_AppendsNewRouter() public {
+        address[] memory r = new address[](3);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        r[2] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
+        address newRouter = makeAddr("newRouter");
+        r = new address[](1);
+        r[0] = newRouter;
+        arb.addRouters(r);
+
+        address[] memory result = arb.getRouters();
+        assertEq(result.length, 4);
+        assertEq(result[3], newRouter);
+        assertTrue(arb.isRegisteredRouter(newRouter));
+    }
+
+    // ── swap reverts if router not registered ─────────────────────────────────────
+
+    function test_Fork_DualDexTrade_RevertsIfRouterNotRegistered() public {
+        address[] memory r = new address[](1);
+        r[0] = address(SUSHISWAP_ROUTER);
+        arb.addRouters(r);
+
+        _dealWeth(1 ether);
+        // we didn't register this router
+        address fakeRouter = makeAddr("fakeRouter");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterNotRegistered.selector,
+                fakeRouter
+            )
+        );
+        arb.dualDexTrade(fakeRouter, SUSHISWAP_ROUTER, WETH, USDC, 1 ether);
+    }
+
+    function test_Fork_TriDexTrade_RevertsIfRouterNotRegistered() public {
+        address[] memory r = new address[](2);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        arb.addRouters(r);
+
+        _dealWeth(1 ether);
+        address fakeRouter = makeAddr("fakeRouter");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterNotRegistered.selector,
+                fakeRouter
+            )
+        );
+        arb.triDexTrade(
+            fakeRouter,
+            SUSHISWAP_ROUTER,
+            PANCAKESWAP_ROUTER,
+            WETH,
+            USDC,
+            USDT,
+            1 ether
+        );
+    }
+
+    function test_Fork_TradePath_RevertsIfRouterNotRegistered() public {
+        _dealWeth(1 ether);
+        address fakeRouter = makeAddr("fakeRouter");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                UniswapV2Arb.UniswapV2Arb_RouterNotRegistered.selector,
+                fakeRouter
+            )
+        );
+        arb.tradePath(fakeRouter, WETH, WBTC, USDC, UNI, 1 ether);
+    }
+
+    // ── estimateTriDexTrade ───────────────────────────────────────────────────────
+
+    function test_Fork_EstimateTriDexTrade_AllRouters_WETH_WBTC_USDC()
+        public
+        view
+    {
+        //NOTE: This test will pass but it's not a good idea to swap two stablecoins via dexes, as they calculate pools with x*y=k formula
+        uint256 result = arb.estimateTriDexTrade(
+            UNISWAP_V2_ROUTER,
+            SUSHISWAP_ROUTER,
+            PANCAKESWAP_ROUTER,
+            WETH,
+            USDC,
+            USDT,
+            1 ether
+        );
+        assertGt(result, 0);
+    }
+
+    function test_Fork_EstimateTriDexTrade_ZeroAmount_Reverts() public {
+        vm.expectRevert(UniswapV2Arb.UniswapV2Arb_ZeroInputAmount.selector);
+        arb.estimateTriDexTrade(
+            UNISWAP_V2_ROUTER,
+            SUSHISWAP_ROUTER,
+            PANCAKESWAP_ROUTER,
+            WETH,
+            USDC,
+            USDT,
+            0
+        );
+    }
+
+    // ── triDexTrade ───────────────────────────────────────────────────────────────
+
+    function test_Fork_TriDexTrade_Uniswap_Sushiswap_Pancakeswap_WETH_USDC_USDT()
+        public
+    {
+        uint256 amount = 10 ether;
+        _dealWeth(amount);
+
+        address[] memory r = new address[](3);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        r[2] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
+        uint256 estimate = arb.estimateTriDexTrade(
+            UNISWAP_V2_ROUTER,
+            SUSHISWAP_ROUTER,
+            PANCAKESWAP_ROUTER,
+            WETH,
+            USDC,
+            USDT,
+            amount
+        );
+
+        if (estimate > amount) {
+            uint256 balanceBefore = IERC20(WETH).balanceOf(address(arb));
+            arb.triDexTrade(
+                UNISWAP_V2_ROUTER,
+                SUSHISWAP_ROUTER,
+                PANCAKESWAP_ROUTER,
+                WETH,
+                USDC,
+                USDT,
+                amount
+            );
+            uint256 balanceAfter = IERC20(WETH).balanceOf(address(arb));
+            assertGt(balanceAfter, balanceBefore);
+        } else {
+            vm.expectRevert(UniswapV2Arb.UniswapV2Arb_NoProfitMade.selector);
+            arb.triDexTrade(
+                UNISWAP_V2_ROUTER,
+                SUSHISWAP_ROUTER,
+                PANCAKESWAP_ROUTER,
+                WETH,
+                USDC,
+                USDT,
+                amount
+            );
+        }
+    }
+
+    function test_Fork_TriDexTrade_Uniswap_Pancakeswap_Sushiswap_WETH_USDT_USDC()
+        public
+    {
+        uint256 amount = 10 ether;
+        _dealWeth(amount);
+
+        address[] memory r = new address[](3);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        r[2] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
+        uint256 estimate = arb.estimateTriDexTrade(
+            UNISWAP_V2_ROUTER,
+            PANCAKESWAP_ROUTER,
+            SUSHISWAP_ROUTER,
+            WETH,
+            USDT,
+            USDC,
+            amount
+        );
+
+        if (estimate > amount) {
+            uint256 balanceBefore = IERC20(WETH).balanceOf(address(arb));
+            arb.triDexTrade(
+                UNISWAP_V2_ROUTER,
+                PANCAKESWAP_ROUTER,
+                SUSHISWAP_ROUTER,
+                WETH,
+                USDT,
+                USDC,
+                amount
+            );
+            uint256 balanceAfter = IERC20(WETH).balanceOf(address(arb));
+            assertGt(balanceAfter, balanceBefore);
+        } else {
+            vm.expectRevert(UniswapV2Arb.UniswapV2Arb_NoProfitMade.selector);
+            arb.triDexTrade(
+                UNISWAP_V2_ROUTER,
+                PANCAKESWAP_ROUTER,
+                SUSHISWAP_ROUTER,
+                WETH,
+                USDT,
+                USDC,
+                amount
+            );
+        }
+    }
+
+    function test_Fork_TriDexTrade_Sushiswap_Uniswap_Pancakeswap_WETH_WBTC_USDC()
+        public
+    {
+        uint256 amount = 10 ether;
+        _dealWeth(amount);
+
+        address[] memory r = new address[](3);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        r[2] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
+        uint256 estimate = arb.estimateTriDexTrade(
+            SUSHISWAP_ROUTER,
+            UNISWAP_V2_ROUTER,
+            PANCAKESWAP_ROUTER,
+            WETH,
+            WBTC,
+            USDC,
+            amount
+        );
+
+        if (estimate > amount) {
+            uint256 balanceBefore = IERC20(WETH).balanceOf(address(arb));
+            arb.triDexTrade(
+                SUSHISWAP_ROUTER,
+                UNISWAP_V2_ROUTER,
+                PANCAKESWAP_ROUTER,
+                WETH,
+                WBTC,
+                USDC,
+                amount
+            );
+            uint256 balanceAfter = IERC20(WETH).balanceOf(address(arb));
+            assertGt(balanceAfter, balanceBefore);
+        } else {
+            vm.expectRevert(UniswapV2Arb.UniswapV2Arb_NoProfitMade.selector);
+            arb.triDexTrade(
+                SUSHISWAP_ROUTER,
+                UNISWAP_V2_ROUTER,
+                PANCAKESWAP_ROUTER,
+                WETH,
+                WBTC,
+                USDC,
+                amount
+            );
+        }
+    }
+
+    function test_Fork_TriDexTrade_OnlyOwner() public {
+        _dealWeth(1 ether);
+        vm.prank(makeAddr("alice"));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                makeAddr("alice")
+            )
+        );
+        arb.triDexTrade(
+            UNISWAP_V2_ROUTER,
+            SUSHISWAP_ROUTER,
+            PANCAKESWAP_ROUTER,
+            WETH,
+            USDC,
+            USDT,
+            1 ether
+        );
+    }
+
     // ── Price consistency across DEXes ────────────────────────────────────────
     // Prices should be in the same ballpark across DEXes — large divergence
     // would indicate a stale fork or wrong address
@@ -552,6 +891,72 @@ contract UniswapV2ArbForkTest is Test {
             USDC,
             1 ether
         );
+    }
+
+    function test_Fork_DualDexTrade_OnlyDeltaOfToken2IsTraded() public {
+        uint256 amount = 5 ether;
+        _dealWeth(amount);
+
+        address[] memory r = new address[](2);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
+        // Pre-seed arb with USDC before the trade
+        uint256 preExistingUSDC = 10_000e6;
+        _dealToken(USDC, preExistingUSDC);
+
+        uint256 wethBefore = IERC20(WETH).balanceOf(address(arb));
+        uint256 usdcBefore = IERC20(USDC).balanceOf(address(arb));
+        assertEq(wethBefore, amount, "Should start with correct WETH");
+        assertEq(
+            usdcBefore,
+            preExistingUSDC,
+            "Should start with pre-existing USDC"
+        );
+
+        uint256 estimate = arb.estimateDualDexTrade(
+            UNISWAP_V2_ROUTER,
+            SUSHISWAP_ROUTER,
+            WETH,
+            USDC,
+            amount
+        );
+
+        if (estimate > amount) {
+            arb.dualDexTrade(
+                UNISWAP_V2_ROUTER,
+                SUSHISWAP_ROUTER,
+                WETH,
+                USDC,
+                amount
+            );
+            assertGt(
+                IERC20(WETH).balanceOf(address(arb)),
+                wethBefore,
+                "WETH should increase"
+            );
+            assertEq(
+                IERC20(USDC).balanceOf(address(arb)),
+                preExistingUSDC,
+                "Pre-existing USDC should be untouched"
+            );
+        } else {
+            vm.expectRevert(UniswapV2Arb.UniswapV2Arb_NoProfitMade.selector);
+            arb.dualDexTrade(
+                UNISWAP_V2_ROUTER,
+                SUSHISWAP_ROUTER,
+                WETH,
+                USDC,
+                amount
+            );
+            // Even on revert, USDC should be untouched since tx is atomic
+            assertEq(
+                IERC20(USDC).balanceOf(address(arb)),
+                preExistingUSDC,
+                "Pre-existing USDC should be untouched on revert"
+            );
+        }
     }
 
     // ── tradePath ─────────────────────────────────────────────────────────────
