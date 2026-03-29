@@ -304,6 +304,11 @@ contract UniswapV2ArbForkTest is Test {
         uint256 amount = 10 ether;
         _dealWeth(amount);
 
+        address[] memory r = new address[](2);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
         //Estimates the minAmountOut for the trade
         uint256 estimate = arb.estimateDualDexTrade(
             UNISWAP_V2_ROUTER,
@@ -340,6 +345,11 @@ contract UniswapV2ArbForkTest is Test {
         uint256 amount = 10 ether;
         _dealWeth(amount);
 
+        address[] memory r = new address[](2);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
+
         uint256 estimate = arb.estimateDualDexTrade(
             UNISWAP_V2_ROUTER,
             SUSHISWAP_ROUTER,
@@ -373,6 +383,11 @@ contract UniswapV2ArbForkTest is Test {
     function test_Fork_DualDexTrade_Uniswap_Pancakeswap_WETH_USDC() public {
         uint256 amount = 10 ether;
         _dealWeth(amount);
+
+        address[] memory r = new address[](2);
+        r[0] = address(UNISWAP_V2_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        arb.addRouters(r);
 
         uint256 estimate = arb.estimateDualDexTrade(
             UNISWAP_V2_ROUTER,
@@ -408,6 +423,11 @@ contract UniswapV2ArbForkTest is Test {
         uint256 amount = 10 ether;
         _dealWeth(amount);
 
+        address[] memory r = new address[](2);
+        r[0] = address(UNISWAP_V2_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        arb.addRouters(r);
+
         uint256 estimate = arb.estimateDualDexTrade(
             UNISWAP_V2_ROUTER,
             PANCAKESWAP_ROUTER,
@@ -442,6 +462,11 @@ contract UniswapV2ArbForkTest is Test {
         uint256 amount = 10 ether;
         _dealWeth(amount);
 
+        address[] memory r = new address[](2);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        arb.addRouters(r);
+
         uint256 estimate = arb.estimateDualDexTrade(
             SUSHISWAP_ROUTER,
             PANCAKESWAP_ROUTER,
@@ -475,6 +500,11 @@ contract UniswapV2ArbForkTest is Test {
     function test_Fork_DualDexTrade_Sushiswap_Pancakeswap_WETH_USDT() public {
         uint256 amount = 10 ether;
         _dealWeth(amount);
+
+        address[] memory r = new address[](2);
+        r[0] = address(SUSHISWAP_ROUTER);
+        r[1] = address(PANCAKESWAP_ROUTER);
+        arb.addRouters(r);
 
         uint256 estimate = arb.estimateDualDexTrade(
             SUSHISWAP_ROUTER,
@@ -542,6 +572,10 @@ contract UniswapV2ArbForkTest is Test {
         uint256 amount = 1 ether;
         _dealWeth(amount);
         _addPath(WBTC, USDC, UNI);
+
+        address[] memory r = new address[](1);
+        r[0] = address(UNISWAP_V2_ROUTER);
+        arb.addRouters(r);
 
         // Use findPath to check before executing
         (uint256 amtBack, address t1, address s, address t2) = arb.findPath(
