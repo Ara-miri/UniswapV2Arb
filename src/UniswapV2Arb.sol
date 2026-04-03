@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IUniswapV2Router, IUniswapV2Pair} from "./interfaces/UniswapInterfaces.sol";
+import {IUniswapV2Router} from "./interfaces/UniswapInterfaces.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract UniswapV2Arb is Ownable {
@@ -13,13 +13,6 @@ contract UniswapV2Arb is Ownable {
     ArbPath[] public paths;
 
     mapping(address => bool) public isRegisteredRouter;
-
-    struct PathResult {
-        uint256 amtBack;
-        address token1;
-        address token2;
-        address token3;
-    }
 
     struct ArbPath {
         address token1;
